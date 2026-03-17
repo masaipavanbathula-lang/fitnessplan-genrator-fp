@@ -1,194 +1,176 @@
 import sqlite3
+import pandas as pd
+import bcrypt
 
 DB_NAME = "fitplan.db"
 
 
-# ---------- CONNECT ----------
+# ---------------- CONNECTION ----------------
 def get_connection():
-    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    return sqlite3.connect(DB_NAME, check_same_thread=False)
 
 
-# ---------- INIT TABLES ----------
+# ---------------- INIT DATABASE ----------------
 def init_db():
-
     conn = get_connection()
-    cursor = conn.cursor()
+    cur = conn.cursor()
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users(
-        email TEXT PRIMARY KEY,
-        name TEXT,
-        age INTEGER,
-        gender TEXT,
-        password TEXT,
-        goal TEXT
-    )
+    # USERS TABLE
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            age INTEGER,
+            gender TEXT,
+            height REAL DEFAULT 170,
+            email TEXT UNIQUE,
+            password TEXT,
+            goal TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS workouts(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT,
-        goal TEXT,
-        plan TEXT,
-        created_at DATE DEFAULT CURRENT_DATE,
-        FOREIGN KEY(email) REFERENCES users(email) ON DELETE CASCADE
-    )
+    # WORKOUT TABLE
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS workouts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            focus TEXT,
+            plan TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS weights(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT,
-        weight REAL,
-        created_at DATE DEFAULT CURRENT_DATE,
-        FOREIGN KEY(email) REFERENCES users(email) ON DELETE CASCADE
-    )
+    # WEIGHT TABLE
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS weights(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            weight REAL,
+            date TEXT
+        )
     """)
-
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_workout_email ON workouts(email)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_weight_email ON weights(email)")
 
     conn.commit()
     conn.close()
 
 
-# ---------- ADD USER ----------
+# ---------------- ADD USER ----------------
 def add_user(name, age, gender, email, password, goal):
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
     try:
-        cursor.execute("""
-        INSERT INTO users(email,name,age,gender,password,goal)
-        VALUES(?,?,?,?,?,?)
-        """, (email, name, age, gender, password, goal))
+        conn = get_connection()
+        cur = conn.cursor()
+
+        # HASH PASSWORD
+        hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+        cur.execute("""
+            INSERT INTO users(name, age, gender, email, password, goal)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (name, age, gender, email, hashed_pw, goal))
 
         conn.commit()
+        conn.close()
         return True
-
-    except Exception as e:
-        print("DB ERROR:", e)
+    except:
         return False
 
-    finally:
-        conn.close()
 
-
-# ---------- VERIFY USER ----------
+# ---------------- VERIFY USER ----------------
 def verify_user(email, password):
-
     conn = get_connection()
-    cursor = conn.cursor()
+    cur = conn.cursor()
 
-    cursor.execute("""
-    SELECT * FROM users WHERE email=? AND password=?
-    """, (email, password))
-
-    user = cursor.fetchone()
+    cur.execute("SELECT * FROM users WHERE email=?", (email,))
+    user = cur.fetchone()
 
     conn.close()
-    return user
+
+    if user:
+        stored_pw = user[6]  # password column index
+        if bcrypt.checkpw(password.encode(), stored_pw):
+            return user
+
+    return None
 
 
-# ---------- GET PROFILE ----------
+# ---------------- GET PROFILE ----------------
 def get_user_profile(email):
-
     conn = get_connection()
-    cursor = conn.cursor()
+    cur = conn.cursor()
 
-    cursor.execute("""
-    SELECT name, age, gender, goal FROM users WHERE email=?
+    cur.execute("""
+        SELECT name, age, gender, goal, height
+        FROM users
+        WHERE email=?
     """, (email,))
 
-    profile = cursor.fetchone()
-
+    data = cur.fetchone()
     conn.close()
-    return profile
+
+    if data:
+        return data[0], data[1], data[2], data[3]   # return SAME as old (for app.py compatibility)
+
+    return None
 
 
-# ---------- UPDATE PROFILE ----------
+# ---------------- UPDATE PROFILE ----------------
 def update_profile(name, age, gender, goal, email):
-
     conn = get_connection()
-    cursor = conn.cursor()
+    cur = conn.cursor()
 
-    cursor.execute("""
-    UPDATE users
-    SET name=?, age=?, gender=?, goal=?
-    WHERE email=?
+    cur.execute("""
+        UPDATE users
+        SET name=?, age=?, gender=?, goal=?
+        WHERE email=?
     """, (name, age, gender, goal, email))
 
     conn.commit()
     conn.close()
 
 
-# ---------- SAVE WORKOUT ----------
-def save_workout(email, goal, plan):
-
+# ---------------- SAVE WORKOUT ----------------
+def save_workout(email, focus, plan):
     conn = get_connection()
-    cursor = conn.cursor()
+    cur = conn.cursor()
 
-    cursor.execute("""
-    INSERT INTO workouts(email, goal, plan)
-    VALUES(?,?,?)
-    """, (email, goal, plan))
+    cur.execute("""
+        INSERT INTO workouts(email, focus, plan)
+        VALUES (?, ?, ?)
+    """, (email, focus, plan))
 
     conn.commit()
     conn.close()
 
 
-# ---------- GET WORKOUTS ----------
-def get_workouts(email):
-
+# ---------------- SAVE WEIGHT ----------------
+def save_weight(email, weight, date):
     conn = get_connection()
-    cursor = conn.cursor()
+    cur = conn.cursor()
 
-    cursor.execute("""
-    SELECT goal, plan, created_at
-    FROM workouts
-    WHERE email=?
-    ORDER BY id DESC
-    """, (email,))
-
-    data = cursor.fetchall()
-
-    conn.close()
-    return data
-
-
-# ---------- SAVE WEIGHT ----------
-def save_weight(email, weight):
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    INSERT INTO weights(email, weight)
-    VALUES(?,?)
-    """, (email, weight))
+    cur.execute("""
+        INSERT INTO weights(email, weight, date)
+        VALUES (?, ?, ?)
+    """, (email, weight, date))
 
     conn.commit()
     conn.close()
 
 
-# ---------- GET WEIGHTS ----------
+# ---------------- GET WEIGHTS ----------------
 def get_weights(email):
-
     conn = get_connection()
-    cursor = conn.cursor()
 
-    cursor.execute("""
-    SELECT weight FROM weights
-    WHERE email=?
-    ORDER BY id
-    """, (email,))
-
-    data = cursor.fetchall()
+    df = pd.read_sql_query(
+        "SELECT date, weight FROM weights WHERE email=? ORDER BY date",
+        conn,
+        params=(email,)
+    )
 
     conn.close()
 
-    return [x[0] for x in data]
+    if df.empty:
+        return None
+
+    df = df.set_index("date")
+    return df
