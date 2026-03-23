@@ -152,4 +152,3 @@ streamlit run app.py
 
 ---
 
-⭐ If you like this project, consider giving it a **Star on GitHub**.
